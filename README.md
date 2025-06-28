@@ -6,7 +6,7 @@ Recent advancements in model quantization have enabled the deployment of deep ne
 
 > **"What is the optimal quantization bit-width for a given classification task complexity (number of classes)?"**
 
-We investigate the performance, efficiency, and energy consumption of deep learning models across various bit-widths (1, 2, 4, 8, 16, 32-bit) as the number of target classes increases. Our analysis reveals critical "performance cliffs" for low-bit models and establishes a Pareto-optimal relationship 정부etween model precision and task complexity, providing practical guidelines for designing efficient AI systems.
+We investigate the performance, efficiency, and energy consumption of deep learning models across various bit-widths (1, 2, 4, 8, 16, 32-bit) as the number of target classes increases. Our analysis reveals critical "performance cliffs" for low-bit models and establishes a Pareto-optimal relationship between model precision and task complexity, providing practical guidelines for designing efficient AI systems.
 
 ## 🔑 Key Features
 
