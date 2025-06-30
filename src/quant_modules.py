@@ -57,5 +57,81 @@ class QuantizeSTE(torch.autograd.Function):
         #BITS 인자는 학습되지 않음으로 기울기 없음
         return grad_output, None
 
+# ───────────────────────────────────────────────────────────────
+# 2. 일반화된 양자화 레이어 (The Generic Quantized Building Blocks)
+# ───────────────────────────────────────────────────────────────
 
+class QuantizedConv2d(nn.Conv2d):
+    """
+    일반화된 양자화 컨볼루션 레이어.
+    'bits' 인자에 따라 동작 방식이 결정됩니다.
+    """
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, bias=True, bits=8):
+        super().__init__(in_channels, out_channels, kernel_size, stride, padding, bias=bias)
+        self.bits = bits
+
+        # 매우 낮은 비트(<=4)는 학습 안정성을 위해 별도의 실수형 가중치(weight_fp)를 둠
+        if self.bits <= 4:
+            self.weight_fp = nn.Parameter(self.weight.data.clone())
+
+    def forward(self, x):
+        # 16, 32-bit는 일반 컨볼루션과 동일하게 동작
+        if self.bits >= 16:
+            return F.conv2d(x, self.weight, self.bias, self.stride, self.padding)
+        
+        # 학습 전략에 따라 양자화할 가중치를 선택
+        if self.bits <= 4:
+            # 1, 2, 4-bit는 안정적인 weight_fp를 양자화
+            weight_to_quantize = self.weight_fp
+        else: # 8-bit
+            # 8-bit는 QAT처럼 원본 weight를 직접 양자화 시뮬레이션
+            weight_to_quantize = self.weight
+
+        quantized_weight = QuantizeSTE.apply(weight_to_quantize, self.bits)
+        return F.conv2d(x, quantized_weight, self.bias, self.stride, self.padding)
+    
+    def reset_parameters(self):
+        super().reset_parameters()
+        # weight_fp를 사용하는 모델의 경우, 이 값도 함께 초기화
+        if self.bits <= 4 and hasattr(self, 'weight_fp'):
+            self.weight_fp.data = self.weight.data.clone()
+
+class QuantizedLinear(nn.Linear):
+    """일반화된 양자화 선형 레이어."""
+    def __init__(self, in_features, out_features, bias=True, bits=8):
+        super().__init__(in_features, out_features, bias=bias)
+        self.bits = bits
+        if self.bits <= 4:
+            self.weight_fp = nn.Parameter(self.weight.data.clone())
+
+    def forward(self, x):
+        if self.bits >= 16:
+            return F.linear(x, self.weight, self.bias)
+        
+        if self.bits <= 4:
+            weight_to_quantize = self.weight_fp
+        else:
+            weight_to_quantize = self.weight
+            
+        quantized_weight = QuantizeSTE.apply(weight_to_quantize, self.bits)
+        return F.linear(x, quantized_weight, self.bias)
+    
+    def reset_parameters(self):
+        super().reset_parameters()
+        if self.bits <= 4 and hasattr(self, 'weight_fp'):
+            self.weight_fp.data = self.weight.data.clone()
+
+# ───────────────────────────────────────────────────────────────
+# 3. 보조 함수 (Helper Function)
+# ───────────────────────────────────────────────────────────────
+
+def clip_weights(model, min_val=-1.0, max_val=1.0):
+    """
+    weight_fp를 사용하는 저비트 모델의 가중치를 클리핑하여 학습 안정화.
+    """
+    for module in model.modules():
+        # weight_fp를 가진 레이어에만 적용
+        if isinstance(module, (QuantizedConv2d, QuantizedLinear)) and module.bits <= 4:
+            if hasattr(module, 'weight_fp'):
+                module.weight_fp.data.clamp_(min_val, max_val)
 
